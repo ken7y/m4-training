@@ -59,7 +59,8 @@ from transformers import (
     AutoModelForSequenceClassification,
     TrainingArguments,
     Trainer,
-    DataCollatorWithPadding
+    DataCollatorWithPadding,
+    EarlyStoppingCallback
 )
 import torch
 import numpy as np
@@ -202,9 +203,11 @@ trainer = Trainer(
     eval_dataset=test_dataset,
     data_collator=data_collator,
     compute_metrics=compute_metrics,
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=3)]
 )
 
 print("\nStarting training...")
+print("⚠️  Early stopping enabled: Will stop if F1 doesn't improve for 3 evaluations")
 trainer.train()
 
 # ============================================================
@@ -249,10 +252,11 @@ python3 train_balanced_model.py
 ```
 
 ### 5. Monitor Training
-Training will take 2-4 hours depending on GPU. Logs will show:
+Training will take 2-4 hours depending on GPU (or less with early stopping!). Logs will show:
 - Training loss
 - Evaluation metrics (accuracy, precision, recall, F1)
 - Checkpoints saved every 500 steps
+- **Early stopping alerts** if F1 stops improving
 
 ### 6. Download Model
 Once complete, download the trained model:
@@ -271,6 +275,55 @@ With balanced training data, the model should achieve:
 - **False positives on Reddit**: <5% (down from 19.4%)
 
 The model will learn that humans write both formally (academic) and casually (Reddit), reducing false positives on informal text.
+
+---
+
+## Early Stopping (Automatic)
+
+**Training will automatically stop if overfitting is detected!**
+
+### How It Works:
+- **Patience: 3** - If validation F1 doesn't improve for 3 consecutive evaluations (1,500 steps), training stops
+- **Evaluation frequency**: Every 500 steps
+- **Best model saved**: Always reverts to the checkpoint with highest F1
+
+### Example Scenario:
+
+```
+Step 500:  eval_f1=0.9420  ← Save as best
+Step 1000: eval_f1=0.9550  ← New best! ✅
+Step 1500: eval_f1=0.9628  ← New best! ✅
+Step 2000: eval_f1=0.9640  ← New best! ✅
+Step 2500: eval_f1=0.9635  ← No improvement (1/3)
+Step 3000: eval_f1=0.9630  ← No improvement (2/3)
+Step 3500: eval_f1=0.9625  ← No improvement (3/3)
+
+🛑 EARLY STOPPING: F1 hasn't improved for 3 evaluations
+✅ Loading best model from Step 2000 (F1=0.9640)
+💾 Training complete!
+```
+
+### Benefits:
+- ✅ **Saves time**: Stops when model stops improving (might finish in 2 hours instead of 4)
+- ✅ **Saves money**: Don't waste RunPod credits on useless training
+- ✅ **Prevents overfitting**: Automatically reverts to best checkpoint
+- ✅ **No babysitting**: Set it and forget it
+
+### What You'll See:
+```
+⚠️  Early stopping enabled: Will stop if F1 doesn't improve for 3 evaluations
+
+# During training:
+{'eval_loss': 0.152, 'eval_f1': 0.9422, 'epoch': 0.21}
+{'eval_loss': 0.098, 'eval_f1': 0.9550, 'epoch': 0.42}
+{'eval_loss': 0.087, 'eval_f1': 0.9628, 'epoch': 0.63}
+
+# If overfitting detected:
+🛑 Stopping training early (patience=3)
+✅ Loading best model from checkpoint-2000
+```
+
+**Note:** If training completes all 3 epochs without early stopping, that's good! It means the model kept improving throughout.
 
 ---
 
@@ -370,6 +423,25 @@ Use the existing test scripts:
 - Add more Reddit data (increase to 80k)
 - Add more diverse casual sources (Twitter, forums)
 - Check if M4 human data includes casual text
+
+**Training stopped early?**
+- ✅ This is GOOD! Early stopping saved you time and money
+- The best model is automatically loaded (highest F1 score)
+- If you want to train longer, increase `early_stopping_patience` to 5 or remove the callback
+
+**Want to disable early stopping?**
+```python
+# Remove the callbacks parameter from Trainer:
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=test_dataset,
+    data_collator=data_collator,
+    compute_metrics=compute_metrics,
+    # callbacks=[EarlyStoppingCallback(early_stopping_patience=3)]  # Removed
+)
+```
 
 ---
 
