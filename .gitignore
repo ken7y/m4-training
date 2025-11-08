@@ -1,0 +1,78 @@
+# Training outputs
+runs/
+checkpoints/
+outputs/
+*.pth
+*.bin
+*.pt
+
+# W&B
+wandb/
+
+# Data (M4 is large, clone separately)
+M4/
+
+# Large datasets and intermediate files
+reddit-bigset/
+dataset_kaggle_ai/
+wsb/
+*.csv
+reddit_bigset_sample.csv
+reddit_bigset_training.jsonl
+wsb_sample_1000.csv
+kaggle_test_dataset.csv
+
+# Log files
+*.log
+
+# Test datasets
+balanced_ai_human_prompts.csv
+
+# Predictions
+predictions/
+*.jsonl.predictions
+*.predictions.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
