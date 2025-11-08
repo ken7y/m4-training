@@ -23,10 +23,14 @@ python train.py \
   --model roberta-base \
   --lr 2e-5 \
   --dropout 0.2 \
-  --val_generator flant5 \
   --epochs 3 \
   --batch_size 64 \
+  --data_dir M4_cleaned/data \
+  --reddit_file reddit_training_60k.jsonl \
   --bf16 \
+  --stratified_split \
+  --validation_split 0.1 \
+  --use_class_weights \
   --use_wandb \
   --run_name m4-a6000-base \
   --output_dir runs/m4-a6000-base
@@ -42,10 +46,14 @@ python train.py \
   --model roberta-large \
   --lr 1e-5 \
   --dropout 0.2 \
-  --val_generator flant5 \
   --epochs 3 \
   --batch_size 32 \
+  --data_dir M4_cleaned/data \
+  --reddit_file reddit_training_60k.jsonl \
   --bf16 \
+  --stratified_split \
+  --validation_split 0.1 \
+  --use_class_weights \
   --use_wandb \
   --run_name m4-a6000-large \
   --output_dir runs/m4-a6000-large
@@ -61,11 +69,15 @@ python train.py \
   --lr 2e-5 \
   --dropout 0.2 \
   --train_domains arxiv wikipedia reddit peerread \
-  --train_generators chatGPT davinci cohere bloomz \
-  --val_generator flant5 \
+  --train_generators chatGPT davinci cohere dolly flant5 \
   --epochs 3 \
   --batch_size 64 \
+  --data_dir M4_cleaned/data \
+  --reddit_file reddit_training_60k.jsonl \
   --bf16 \
+  --stratified_split \
+  --validation_split 0.1 \
+  --use_class_weights \
   --use_wandb \
   --run_name m4-multidomain \
   --output_dir runs/m4-multidomain
@@ -79,12 +91,16 @@ python train.py \
   --model roberta-base \
   --lr 2e-5 \
   --dropout 0.2 \
-  --val_generator flant5 \
   --epochs 1 \
   --batch_size 64 \
   --max_train_samples 5000 \
   --max_val_samples 1000 \
+  --data_dir M4_cleaned/data \
+  --reddit_file reddit_training_60k.jsonl \
   --bf16 \
+  --stratified_split \
+  --validation_split 0.1 \
+  --use_class_weights \
   --output_dir runs/test
 
 # ============================================

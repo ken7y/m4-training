@@ -21,9 +21,33 @@ from transformers import (
     set_seed,
 )
 from sklearn.metrics import f1_score, accuracy_score, precision_recall_fscore_support
+from sklearn.model_selection import train_test_split
 from scipy.special import softmax
 from typing import List, Dict, Tuple
 from tqdm import tqdm
+
+
+class WeightedTrainer(Trainer):
+    """Custom Trainer with weighted loss for class imbalance"""
+    
+    def __init__(self, *args, class_weights=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weights = class_weights
+    
+    def compute_loss(self, model, inputs, return_outputs=False):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.logits
+        
+        if self.class_weights is not None:
+            # Weighted cross-entropy loss
+            loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights.to(logits.device))
+        else:
+            loss_fct = torch.nn.CrossEntropyLoss()
+        
+        loss = loss_fct(logits, labels)
+        
+        return (loss, outputs) if return_outputs else loss
 
 
 def parse_args():
@@ -39,10 +63,14 @@ def parse_args():
     parser.add_argument("--freeze_layers", type=int, default=4, help="Number of layers to unfreeze from top")
 
     # Data params
-    parser.add_argument("--val_generator", type=str, default="gpt2-neo", help="Generator to hold out for validation")
-    parser.add_argument("--train_domains", type=str, nargs="+", default=["arxiv", "wikipedia", "reddit"], help="Domains to train on")
-    parser.add_argument("--train_generators", type=str, nargs="+", default=["chatGPT", "davinci", "cohere"], help="Generators to train on")
-    parser.add_argument("--data_dir", type=str, default="M4/data", help="Path to M4 data directory")
+    parser.add_argument("--val_generator", type=str, default="flant5", help="Generator to hold out for validation when not using stratified split")
+    parser.add_argument("--train_domains", type=str, nargs="+", default=["arxiv", "wikipedia", "reddit", "wikihow", "peerread"], help="Domains to train on")
+    parser.add_argument("--train_generators", type=str, nargs="+", default=["chatGPT", "davinci", "cohere", "dolly", "flant5"], help="Generators to train on")
+    parser.add_argument("--data_dir", type=str, default="M4_cleaned/data", help="Path to M4 data directory")
+    parser.add_argument("--reddit_file", type=str, default="reddit_training_60k.jsonl", help="Path to Reddit training file (60k casual human)")
+    parser.add_argument("--use_class_weights", action="store_true", default=False, help="Use weighted loss for class imbalance")
+    parser.add_argument("--stratified_split", action="store_true", help="Use stratified train/val split across all loaded data")
+    parser.add_argument("--validation_split", type=float, default=0.1, help="Validation split ratio when using stratified split")
 
     # Preprocessing params
     parser.add_argument("--max_length", type=int, default=512, help="Max sequence length (including special tokens)")
@@ -246,6 +274,50 @@ def load_m4_data(data_dir, domains, generators, normalize_digits_flag=True, max_
     return Dataset.from_list(data)
 
 
+def load_reddit_data(file_path, normalize_digits_flag=True, max_samples=None):
+    """Load Reddit human dataset (JSONL with label 0)."""
+    data = []
+
+    if not file_path or not os.path.exists(file_path):
+        print(f"⚠️  Warning: Reddit file not found at {file_path}")
+        return Dataset.from_list(data)
+
+    print(f"📥 Loading Reddit data from {file_path}")
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line_idx, line in enumerate(f):
+            try:
+                item = json.loads(line.strip())
+            except json.JSONDecodeError:
+                continue
+
+            text = item.get("text", "")
+            if not text:
+                continue
+
+            if normalize_digits_flag:
+                text = normalize_digits(text)
+
+            label = item.get("label", 0)
+            generator = item.get("generator", "human")
+            domain = item.get("source", "reddit")
+            example_id = item.get("id", f"reddit_{line_idx}")
+
+            data.append({
+                "text": text,
+                "label": label,
+                "generator": generator,
+                "domain": domain,
+                "id": f"{example_id}_reddit"
+            })
+
+    if max_samples:
+        data = random.sample(data, min(max_samples, len(data)))
+
+    print(f"✅ Loaded {len(data)} Reddit samples")
+    return Dataset.from_list(data)
+
+
 def create_chunked_dataset(dataset, tokenizer, max_length=512, overlap=50):
     """
     Create chunked version of dataset for training.
@@ -357,23 +429,79 @@ def main():
 
     # Load raw data
     print(f"\n📂 Loading data from {args.data_dir}")
-    train_dataset_raw = load_m4_data(
+    m4_train_dataset_raw = load_m4_data(
         args.data_dir,
         args.train_domains,
         args.train_generators,
-        normalize_digits_flag=args.normalize_digits,
-        max_samples=args.max_train_samples
+        normalize_digits_flag=args.normalize_digits
     )
 
-    val_dataset_raw = load_m4_data(
-        args.data_dir,
-        args.train_domains,
-        [args.val_generator],
+    reddit_dataset_raw = load_reddit_data(
+        args.reddit_file,
         normalize_digits_flag=args.normalize_digits,
-        max_samples=args.max_val_samples
+        max_samples=None if not args.stratified_split else None
     )
+
+    # Combine datasets before splitting
+    combined_examples = list(m4_train_dataset_raw) + list(reddit_dataset_raw)
+
+    if len(combined_examples) == 0:
+        raise ValueError("No training data found. Check data paths and filters.")
+
+    if args.stratified_split:
+        labels = [example['label'] for example in combined_examples]
+        val_size = args.validation_split
+        if not 0 < val_size < 1:
+            raise ValueError("validation_split must be between 0 and 1 when using stratified split")
+
+        train_examples, val_examples = train_test_split(
+            combined_examples,
+            test_size=val_size,
+            stratify=labels,
+            random_state=args.seed
+        )
+
+        if args.max_train_samples:
+            train_examples = train_examples[:min(args.max_train_samples, len(train_examples))]
+        if args.max_val_samples:
+            val_examples = val_examples[:min(args.max_val_samples, len(val_examples))]
+
+        train_dataset_raw = Dataset.from_list(train_examples)
+        val_dataset_raw = Dataset.from_list(val_examples)
+    else:
+        if args.max_train_samples:
+            combined_examples = combined_examples[:min(args.max_train_samples, len(combined_examples))]
+        train_dataset_raw = Dataset.from_list(combined_examples)
+
+        val_dataset_raw = load_m4_data(
+            args.data_dir,
+            args.train_domains,
+            [args.val_generator],
+            normalize_digits_flag=args.normalize_digits,
+            max_samples=args.max_val_samples
+        )
+
+        if len(val_dataset_raw) == 0:
+            raise ValueError(
+                f"Validation dataset is empty. Ensure generator '{args.val_generator}' exists or enable stratified split."
+            )
 
     print(f"\n📊 Raw data: Train={len(train_dataset_raw)} texts, Val={len(val_dataset_raw)} texts")
+
+    class_weights_tensor = None
+    if args.use_class_weights:
+        train_labels = train_dataset_raw['label']
+        class_counts = np.bincount(train_labels, minlength=2)
+        if np.any(class_counts == 0):
+            raise ValueError("Class weights requested but one of the classes has zero samples in the training split.")
+
+        total_samples = class_counts.sum()
+        class_weights_array = total_samples / (2 * class_counts.astype(np.float32))
+        class_weights_tensor = torch.tensor(class_weights_array, dtype=torch.float32)
+
+        print("\n⚖️  Class weights (label -> weight):")
+        for label_idx, weight in enumerate(class_weights_array):
+            print(f"   {label_idx}: {weight:.4f}")
 
     # Create chunked datasets
     print(f"\n✂️  Chunking with max_length={args.max_length}, overlap={args.chunk_overlap}")
@@ -463,7 +591,8 @@ def main():
     )
 
     # Initialize trainer
-    trainer = Trainer(
+    trainer_cls = WeightedTrainer if args.use_class_weights else Trainer
+    trainer_kwargs = dict(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
@@ -471,6 +600,11 @@ def main():
         tokenizer=tokenizer,
         compute_metrics=compute_metrics,
     )
+
+    if args.use_class_weights and class_weights_tensor is not None:
+        trainer_kwargs["class_weights"] = class_weights_tensor
+
+    trainer = trainer_cls(**trainer_kwargs)
 
     # Train
     print("\n🚀 Starting training...")
@@ -497,10 +631,14 @@ def main():
         "val_generator": args.val_generator,
         "train_domains": args.train_domains,
         "train_generators": args.train_generators,
+        "reddit_file": args.reddit_file,
         "seed": args.seed,
         "max_length": args.max_length,
         "chunk_overlap": args.chunk_overlap,
         "normalize_digits": args.normalize_digits,
+        "use_class_weights": args.use_class_weights,
+        "stratified_split": args.stratified_split,
+        "validation_split": args.validation_split if args.stratified_split else None,
         "freeze_base": args.freeze_base,
         "freeze_layers": args.freeze_layers if args.freeze_base else None,
         "final_metrics": {k: float(v) for k, v in metrics.items()},

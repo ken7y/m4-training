@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Text Detector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 25px;
+            border-radius: 10px;
+            display: none;
+        }
+        .result.show {
+            display: block;
+        }
+        .result.ai {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        .result.human {
+            background: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+        }
+        .result-label {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 15px;
+        }
+        .percentages {
+            display: flex;
+            gap: 20px;
+        }
+        .percentage {
+            flex: 1;
+        }
+        .percentage-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .percentage-value {
+            font-size: 32px;
+            font-weight: 700;
+        }
+        .ai-value {
+            color: #ff6b6b;
+        }
+        .human-value {
+            color: #17a2b8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 AI Text Detector</h1>
+        <p class="subtitle">Paste any text to check if it's AI-generated or human-written</p>
+
+        <textarea id="textInput" placeholder="Paste your text here..."></textarea>
+
+        <button id="detectBtn" onclick="detectText()">Analyze Text</button>
+
+        <div id="result" class="result">
+            <div class="result-label" id="resultLabel"></div>
+            <div class="percentages">
+                <div class="percentage">
+                    <div class="percentage-label">AI-Generated</div>
+                    <div class="percentage-value ai-value" id="aiPercent">0%</div>
+                </div>
+                <div class="percentage">
+                    <div class="percentage-label">Human-Written</div>
+                    <div class="percentage-value human-value" id="humanPercent">0%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function detectText() {
+            const text = document.getElementById('textInput').value.trim();
+            const btn = document.getElementById('detectBtn');
+            const result = document.getElementById('result');
+
+            if (!text) {
+                alert('Please enter some text to analyze');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Analyzing...';
+            result.classList.remove('show');
+
+            try {
+                const response = await fetch('http://localhost:5000/detect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+
+                const data = await response.json();
+
+                document.getElementById('aiPercent').textContent = data.ai_percentage + '%';
+                document.getElementById('humanPercent').textContent = data.human_percentage + '%';
+                document.getElementById('resultLabel').textContent =
+                    data.prediction === 'AI-GENERATED' ? '🤖 AI-Generated Text' : '👤 Human-Written Text';
+
+                result.classList.remove('ai', 'human');
+                result.classList.add(data.prediction === 'AI-GENERATED' ? 'ai' : 'human');
+                result.classList.add('show');
+
+            } catch (error) {
+                alert('Error analyzing text. Make sure the server is running.');
+                console.error('Error:', error);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Analyze Text';
+            }
+        }
+
+        // Allow Enter key to submit (with Shift+Enter for new line)
+        document.getElementById('textInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                detectText();
+            }
+        });
+    </script>
+</body>
+</html>
