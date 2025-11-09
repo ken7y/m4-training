@@ -67,15 +67,11 @@ total = 186234
 
 # Inverse frequency weighting
 weight_human = total / (2 * num_human) = 0.756
-
-  --train_generators chatGPT davinci cohere dolly flant5 \
+weight_ai = total / (2 * num_ai) = 1.476
 class_weights = torch.tensor([0.756, 1.476])
 ```
 
-  --stratified_split \
-  --validation_split 0.1 \
 ---
-  --use_class_weights \
 
 ## 🎯 Training Strategy
 
@@ -84,33 +80,15 @@ class_weights = torch.tensor([0.756, 1.476])
 
 Enable it from the CLI with `--use_class_weights` (handled automatically inside `train.py`).
 
-**Implementation:**
-```python
-class WeightedTrainer(Trainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
-        labels = inputs.pop("labels")
-        outputs = model(**inputs)
-        logits = outputs.logits
-        
-        # Weighted cross-entropy
-        loss_fct = torch.nn.CrossEntropyLoss(
-            weight=torch.tensor([0.756, 1.476]).cuda()
-        )
-        loss = loss_fct(logits, labels)
-        return (loss, outputs) if return_outputs else loss
-```
+**How it works:**
+- Class weights are computed automatically from your training split
+- AI class gets ~1.95x higher weight to compensate for fewer samples
+- Implemented in `WeightedTrainer` class (see `train.py:30-50`)
 
 ### ✅ Stratified Split
-Preserve 66/34 ratio in train/val splits:
-```python
-train_data, val_data = train_test_split(
-    all_data,
-    test_size=0.1,
-    stratify=labels,
-    random_state=42
-)
-```
-Enable this path with `--stratified_split` (default 10% holdout can be changed via `--validation_split`).
+Preserve 66/34 ratio in train/val splits using sklearn's `train_test_split` with stratification.
+
+Enable with `--stratified_split` flag. Default 10% validation split can be changed via `--validation_split`.
 
 ---
 

@@ -448,6 +448,19 @@ def main():
     if len(combined_examples) == 0:
         raise ValueError("No training data found. Check data paths and filters.")
 
+    if len(combined_examples) < 1000:
+        raise ValueError(
+            f"Dataset too small: {len(combined_examples)} samples. "
+            f"Minimum 1000 samples required for reliable training. "
+            f"Check data_dir and file paths."
+        )
+
+    # Warn if Reddit data is missing when using stratified split
+    if args.stratified_split and len(reddit_dataset_raw) == 0:
+        print(f"\n⚠️  WARNING: Stratified split enabled but Reddit data not loaded!")
+        print(f"   This will change class balance from expected 66/34 to ~50/50")
+        print(f"   Check that --reddit_file path is correct: {args.reddit_file}")
+
     if args.stratified_split:
         labels = [example['label'] for example in combined_examples]
         val_size = args.validation_split
@@ -525,7 +538,7 @@ def main():
     def tokenize_function(examples):
         return tokenizer(
             examples['text'],
-            padding='max_length',
+            padding=True,  # Dynamic padding to longest in batch (more efficient than 'max_length')
             truncation=True,
             max_length=args.max_length
         )
